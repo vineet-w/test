@@ -1,7 +1,7 @@
 streamlit
 easyocr
 pytesseract
-paddleocr
+paddlepaddle==3.1.1
 transformers
 torch
 pillow
@@ -9,3 +9,4 @@ google-generativeai
 opencv-python
 numpy
 pandas
+
