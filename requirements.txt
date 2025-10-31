@@ -1,0 +1,11 @@
+streamlit
+easyocr
+pytesseract
+paddleocr
+transformers
+torch
+pillow
+google-generativeai
+opencv-python
+numpy
+pandas
