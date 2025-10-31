@@ -1,5 +1,5 @@
 # ============================================================
-# app.py — OCR Evaluation and Manual Approval Tool
+# app.py — OCR Evaluation and Manual Approval Tool (Safe Version)
 # ============================================================
 
 import os
@@ -11,12 +11,25 @@ from PIL import Image
 import streamlit as st
 import easyocr
 import pytesseract
-from paddleocr import PaddleOCR
-from transformers import TrOCRProcessor, VisionEncoderDecoderModel
-import google.generativeai as genai
 
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+# Optional imports
+try:
+    from paddleocr import PaddleOCR
+    paddle_available = True
+except Exception as e:
+    paddle_available = False
 
+try:
+    from transformers import TrOCRProcessor, VisionEncoderDecoderModel
+    trocr_available = True
+except Exception as e:
+    trocr_available = False
+
+try:
+    import google.generativeai as genai
+    gemini_available = True
+except Exception as e:
+    gemini_available = False
 
 # ------------------- CONFIGURATION --------------------------
 st.set_page_config(page_title="OCR Evaluation Dashboard", layout="wide")
@@ -49,12 +62,29 @@ if uploaded_zip:
 
     st.sidebar.write("Initializing OCR Models...")
     easy_reader = easyocr.Reader(['en'])
-    paddle_reader = PaddleOCR(use_angle_cls=True, lang='en')
-    trocr_processor = TrOCRProcessor.from_pretrained("microsoft/trocr-base-stage1")
-    trocr_model = VisionEncoderDecoderModel.from_pretrained("microsoft/trocr-base-stage1")
 
-    if genai_api:
+    if paddle_available:
+        try:
+            paddle_reader = PaddleOCR(use_angle_cls=True, lang='en')
+        except Exception as e:
+            st.sidebar.warning(f"PaddleOCR failed to initialize: {e}")
+            paddle_available = False
+    else:
+        st.sidebar.warning("⚠️ PaddleOCR not available. Skipping.")
+
+    if trocr_available:
+        trocr_processor = TrOCRProcessor.from_pretrained("microsoft/trocr-base-stage1")
+        trocr_model = VisionEncoderDecoderModel.from_pretrained("microsoft/trocr-base-stage1")
+    else:
+        st.sidebar.warning("⚠️ TrOCR not available. Skipping.")
+
+    if gemini_available and genai_api:
         genai.configure(api_key=genai_api)
+    elif gemini_available:
+        st.sidebar.warning("⚠️ Gemini API key not provided — skipping Gemini OCR.")
+        gemini_available = False
+    else:
+        st.sidebar.warning("⚠️ Gemini module not available — skipping Gemini OCR.")
 
     # ------------------- OCR FUNCTIONS -----------------------
     def ocr_easy(img_path):
@@ -74,9 +104,10 @@ if uploaded_zip:
         return text, boxes
 
     def ocr_paddle(img_path):
+        if not paddle_available:
+            return "(PaddleOCR unavailable)", []
         result = paddle_reader.ocr(img_path, cls=True)
-        boxes = []
-        text = ""
+        boxes, text = [], ""
         for line in result[0]:
             text += line[1][0] + " "
             box = line[0]
@@ -84,6 +115,8 @@ if uploaded_zip:
         return text, boxes
 
     def ocr_trocr(img_path):
+        if not trocr_available:
+            return "(TrOCR unavailable)", []
         image = Image.open(img_path).convert("RGB")
         pixel_values = trocr_processor(images=image, return_tensors="pt").pixel_values
         generated_ids = trocr_model.generate(pixel_values)
@@ -91,8 +124,8 @@ if uploaded_zip:
         return text, []
 
     def ocr_gemini(img_path):
-        if not genai_api:
-            return "(Gemini not configured)", []
+        if not gemini_available:
+            return "(Gemini unavailable)", []
         image = Image.open(img_path)
         model = genai.GenerativeModel("gemini-1.5-flash")
         response = model.generate_content(["Extract text from this invoice image.", image])
@@ -101,10 +134,14 @@ if uploaded_zip:
     models = {
         "Tesseract": ocr_tesseract,
         "EasyOCR": ocr_easy,
-        "PaddleOCR": ocr_paddle,
-        "TrOCR": ocr_trocr,
-        "Gemini": ocr_gemini
     }
+
+    if paddle_available:
+        models["PaddleOCR"] = ocr_paddle
+    if trocr_available:
+        models["TrOCR"] = ocr_trocr
+    if gemini_available:
+        models["Gemini"] = ocr_gemini
 
     # ------------------- MAIN LOOP ---------------------------
     results = []
